@@ -45,7 +45,8 @@ GIT_WORK_TREE, $PWD and simple `VAR=value` / `for v in a b; do` variables (a `cd
 to a missing folder followed by `;` leaves the folder as it was). HEAD and branch
 tips follow an earlier `git switch` / `git checkout` (also -c / -b), `git branch
 [-f] <name> [<start>]`, `git tag [-f] <name> [<commit>]` and `git reset --hard` in the line. git is
-only read (GIT_OPTIONAL_LOCKS=0, `clean -n`), each call with a 3 s timeout, except the
+only read (GIT_OPTIONAL_LOCKS=0, `clean -n`), each call with a 3 s timeout (6 s for the untracked-file
+scan) and all of them within 12 s; a call that times out makes the hook ask, never allow. The only writes are the
 refs/git-guard/* refs it writes to keep commits and files it would otherwise ask about
 (GIT_GUARD_DRY=1 skips those writes, for replays against real repos).
 
@@ -80,6 +81,7 @@ def slow_path(data, command):
     import re
     import subprocess
     import time
+    RUN_DEADLINE.append(time.monotonic() + RUN_SECONDS)
     cwd = data.get("cwd")
     if not (isinstance(cwd, str) and cwd):
         try:
@@ -127,6 +129,10 @@ class Unsure(Exception):
     warn = False
 
 
+class TimedOut(Unsure):
+    """A git call did not finish in time. Always asks: a check that can't finish never passes as safe."""
+
+
 # what an unattended agent should do instead (every ask ends with one of these)
 DO_UNSURE = ("Spell out the literal name or path (no variables), fetch first if the remote copy is "
              "missing, or skip it and report it to the user.")
@@ -150,12 +156,20 @@ def git(cwd, gopts, *args, ok_codes=(0,), timeout=3, env=None):
         raise GitError("folder made by mktemp in this command: it holds only what the command made")
     if not os.path.isdir(cwd):
         raise GitError("no folder " + cwd)
+    if RUN_DEADLINE:
+        left = RUN_DEADLINE[0] - time.monotonic()
+        if left < 0.3:
+            raise TimedOut("git-guard ran out of time before git %s" % " ".join(args[:2]))
+        timeout = min(timeout, left)
     env = dict(os.environ, GIT_OPTIONAL_LOCKS="0", LC_ALL="C", GIT_TERMINAL_PROMPT="0",
                GIT_PAGER="cat", **(env or {}))
     try:
         r = subprocess.run(["git", *gopts, *args], cwd=cwd, capture_output=True, text=True,
                            timeout=timeout, env=env, stdin=subprocess.DEVNULL, start_new_session=True)
-    except (OSError, subprocess.TimeoutExpired) as e:
+    except subprocess.TimeoutExpired:
+        # a check that can't finish must not pass as safe (a huge ignored folder once let a reset through)
+        raise TimedOut("git %s did not finish within %.0f s" % (" ".join(args[:2]), timeout))
+    except OSError as e:
         raise GitError(str(e))
     if r.returncode not in ok_codes:
         raise GitError("git %s: %s" % (" ".join(args[:3]), r.stderr.strip()[:200]))
@@ -427,6 +441,10 @@ TAGS = {}
 REMOTE_HEADS = {}
 NET_SECONDS = 6
 NET_DEADLINE = []
+# All git calls in one hook run share this budget, so the hook answers before Claude Code stops it;
+# a call that would run past it raises TimedOut, which asks.
+RUN_SECONDS = 12
+RUN_DEADLINE = []
 
 
 def toplevel(cwd, g):
@@ -623,7 +641,7 @@ def untracked_under(cwd, g, to):
         parts = t.split("/")
         dirs.update("/".join(parts[:k]) for k in range(1, len(parts)))
     clash = []
-    for p in lines(git(top, g, "ls-files", "--others", "--full-name")):
+    for p in lines(git(top, g, "ls-files", "--others", "--full-name", timeout=6)):
         parts = p.split("/")
         ancestors = {"/".join(parts[:k]) for k in range(1, len(parts))}
         if p in tracked or p in dirs or ancestors & tracked:
@@ -1213,6 +1231,10 @@ class Guard:
                     track_tag(cwd, g, args)
                 else:
                     track_switch(cwd, g, sub, args)
+            except TimedOut as e:
+                # the checks after it would read a HEAD or branch this line already moved
+                self.asks.append((sub, cwd, "git %s: cannot tell what later git commands in this line would lose, "
+                                  "because %s. %s" % (sub, e, DO_UNSURE)))
             except (GitError, Unsure):
                 pass  # nothing is allowed on this: the checks after it read the repo themselves
             if sub != "branch":
@@ -1235,7 +1257,7 @@ class Guard:
                 found = CHECKS[sub](cwd, g, args)
         except Unsure as e:
             log("unsure", cwd, "git %s: %s" % (sub, e))
-            if level == "ask" and not e.warn:  # the ask checks only raise Unsure once they have seen the risky form
+            if (level == "ask" or isinstance(e, TimedOut)) and not e.warn:  # the ask checks only raise Unsure once they have seen the risky form
                 self.asks.append((kind, cwd, "git %s: cannot tell what it would lose, because %s. %s"
                                   % (sub, e, DO_UNSURE)))
             elif e.warn:  # a branch deletion: say so, but never ask
