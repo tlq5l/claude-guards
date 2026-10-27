@@ -280,6 +280,21 @@ sh(d, "reset", "-q", "--hard", "HEAD~1")
 commit(d, "b.txt", "same\n", "feature")
 check("git: force push after a plain rebase stays silent", git_decision(run(GIT, "git push --force origin main", cwd=d)), "silent")
 
+d = fresh("scan-timeout")
+commit(d, "tracked.txt", "base\n", "base")
+sh(d, "checkout", "-q", "-b", "other")
+commit(d, "newfile.txt", "from other\n", "other")
+sh(d, "checkout", "-q", "main")
+write(d, "newfile.txt", "mine, untracked\n")
+slow = os.path.join(WORK, "slow-git")
+os.makedirs(slow)
+real_git = subprocess.run(["sh", "-c", "command -v git"], capture_output=True, text=True).stdout.strip()
+with open(os.path.join(slow, "git"), "w") as f:  # stalls only the untracked-file scan, like a huge ignored folder
+    f.write('#!/bin/sh\nfor a in "$@"; do [ "$a" = --others ] && sleep 20; done\nexec %s "$@"\n' % real_git)
+os.chmod(os.path.join(slow, "git"), 0o755)
+check("git: reset whose untracked-file scan times out asks, not allows",
+      git_decision(run(GIT, "git reset --hard other", cwd=d, extra_env={"PATH": slow + os.pathsep + os.environ["PATH"]})), "ask")
+
 print("checks: %d, failed: %d" % (checks, len(fails)))
 sys.exit(1 if fails else 0)
 PY

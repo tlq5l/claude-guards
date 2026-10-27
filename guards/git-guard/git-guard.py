@@ -45,7 +45,8 @@ GIT_WORK_TREE, $PWD and simple `VAR=value` / `for v in a b; do` variables (a `cd
 to a missing folder followed by `;` leaves the folder as it was). HEAD and branch
 tips follow an earlier `git switch` / `git checkout` (also -c / -b), `git branch
 [-f] <name> [<start>]`, `git tag [-f] <name> [<commit>]` and `git reset --hard` in the line. git is
-only read (GIT_OPTIONAL_LOCKS=0, `clean -n`), each call with a 3 s timeout, except the
+only read (GIT_OPTIONAL_LOCKS=0, `clean -n`), each call with a 3 s timeout (6 s for the untracked-file
+scan); a call that times out makes the check ask, never allow. The only writes are the
 refs/git-guard/* refs it writes to keep commits and files it would otherwise ask about
 (GIT_GUARD_DRY=1 skips those writes, for replays against real repos).
 
@@ -155,7 +156,10 @@ def git(cwd, gopts, *args, ok_codes=(0,), timeout=3, env=None):
     try:
         r = subprocess.run(["git", *gopts, *args], cwd=cwd, capture_output=True, text=True,
                            timeout=timeout, env=env, stdin=subprocess.DEVNULL, start_new_session=True)
-    except (OSError, subprocess.TimeoutExpired) as e:
+    except subprocess.TimeoutExpired:
+        # a check that can't finish must not pass as safe (a huge ignored folder once let a reset through)
+        raise Unsure("git %s did not finish within %d s" % (" ".join(args[:2]), timeout))
+    except OSError as e:
         raise GitError(str(e))
     if r.returncode not in ok_codes:
         raise GitError("git %s: %s" % (" ".join(args[:3]), r.stderr.strip()[:200]))
@@ -623,7 +627,7 @@ def untracked_under(cwd, g, to):
         parts = t.split("/")
         dirs.update("/".join(parts[:k]) for k in range(1, len(parts)))
     clash = []
-    for p in lines(git(top, g, "ls-files", "--others", "--full-name")):
+    for p in lines(git(top, g, "ls-files", "--others", "--full-name", timeout=6)):
         parts = p.split("/")
         ancestors = {"/".join(parts[:k]) for k in range(1, len(parts))}
         if p in tracked or p in dirs or ancestors & tracked:

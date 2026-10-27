@@ -20,7 +20,7 @@ A hook that stops a git command before it can throw away your work. It runs befo
 It asks before these commands, and only when they would lose something:
 
 - `git push --force` and `--mirror`: shows the commits on the remote branch that the push would drop. A commit that only shares a subject with a local commit still asks. `--mirror` also asks when git-guard's `refs/git-guard/*` backups exist, since `--mirror` would publish them. A force push after a plain rebase (same patch, new hash) stays silent.
-- `git reset --hard`: asks when the reset would delete or overwrite untracked files, ignored ones included, that the target commit tracks or that stand in the way of its paths, because git does this without a prompt. The check covers the whole repository, also when `git` runs from a subfolder.
+- `git reset --hard`: asks when the reset would delete or overwrite untracked files, ignored ones included, that the target commit tracks or that stand in the way of its paths, because git does this without a prompt. The check covers the whole repository, also when `git` runs from a subfolder. If that scan does not finish within 6 seconds (for example, a very large ignored folder), it asks and says the check could not finish, instead of letting the reset run.
 
 It only warns, without asking, for:
 
