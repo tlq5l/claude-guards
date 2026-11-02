@@ -4,6 +4,8 @@ Free guards for Claude Code: three hooks that check Bash commands before they ru
 
 This kit was written and agent-tested with Claude Code.
 
+To see which guard stops which mistake, and what each one leaves alone, read [docs/which-guard.md](docs/which-guard.md).
+
 ## Items
 
 - [git-guard](guards/git-guard/README.md): a hook that asks before a git command loses work.
