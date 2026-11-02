@@ -9,8 +9,8 @@ This kit has three hooks and one skill. Each one catches a different kind of mis
 | Guard | Mistake it stops | What it does | What it leaves alone |
 |---|---|---|---|
 | [git-guard](../guards/git-guard/README.md) | Git commands that would throw away work: a force push that drops commits on the remote branch, or a `git reset --hard` that overwrites untracked files | Asks you to Proceed or Cancel, and shows what would be lost | Silent when nothing would be lost, for example a force push after a plain rebase of the same patch |
-| [purchase-guard](../guards/purchase-guard/README.md) | Shell commands that spend money, such as `vercel domains buy` or a non-GET `curl` to a Stripe payment endpoint such as `/v1/payment_intents` | Refuses the command until you reply yes in chat | Ordinary commands of the same tool, and Stripe calls made with a test key (`sk_test_`) |
-| [pipefail-guard](../guards/pipefail-guard/README.md) | A failing test that looks like a pass because a pipe hides its exit code, such as `pytest \| tail` | Denies the command and shows the rerun with `set -o pipefail; ` in front | Commands that are not tests, and tests that already set `set -o pipefail` |
+| [purchase-guard](../guards/purchase-guard/README.md) | Shell commands that spend money, such as `vercel domains buy` or a `curl -X POST` (or another write method such as PUT, PATCH or DELETE) to a Stripe payment endpoint such as `/v1/payment_intents` | Refuses the command until you reply yes in chat | Ordinary commands of the same tool, and Stripe calls made with a test key (`sk_test_`) |
+| [pipefail-guard](../guards/pipefail-guard/README.md) | A failing test that looks like a pass because a pipe hides its exit code, such as `pytest \| tail` | Denies the command and shows the rerun with `set -o pipefail; ` in front. Under `bypassPermissions` it allows the command and rewrites it to add `set -o pipefail; ` first | Commands that are not tests, and tests that already set `set -o pipefail` |
 | [streamline](../skills/streamline/README.md) (skill) | Finished work with repeated text or steps, needless parts, wasted effort, or the wrong level of detail | Reviews the work you name (or the session's changes) and applies small fixes that keep the meaning | Blocks nothing. It is a skill, not a hook |
 
 ## What each one does not cover
@@ -34,7 +34,7 @@ This kit has three hooks and one skill. Each one catches a different kind of mis
 **streamline**
 
 - Bugs and errors. Use a separate bug review for those.
-- Checking the result by running your tests, so a missed check is possible.
+- A full test run. It runs the cheapest real check for the work (tests, build or lint for code), so a bug that check misses can get through.
 
 As the table says, none of these guards is a security boundary. They guard against accidents and against agents that are misled, not against a command that is set on getting around them.
 
