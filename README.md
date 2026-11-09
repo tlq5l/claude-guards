@@ -4,7 +4,7 @@ Free guards for Claude Code: three hooks that check Bash commands before they ru
 
 This kit was written and agent-tested with Claude Code.
 
-To see which guard stops which mistake, and what each one leaves alone, read [docs/which-guard.md](docs/which-guard.md).
+To see which guard stops which mistake, and what each one leaves alone, read [docs/which-guard.md](docs/which-guard.md). For the full list of what each guard does not cover, read [docs/what-guards-do-not-cover.md](docs/what-guards-do-not-cover.md).
 
 ## Items
 
